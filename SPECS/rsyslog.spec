@@ -5,7 +5,7 @@
 Summary: Enhanced system logging and kernel message trapping daemon
 Name: rsyslog
 Version: 8.2412.0
-Release: 1.1%{?dist}
+Release: 1.2%{?dist}
 License: (GPLv3+ and ASL 2.0)
 URL: http://www.rsyslog.com/
 Source0: http://www.rsyslog.com/files/download/rsyslog/%{name}-%{version}.tar.gz
@@ -20,6 +20,8 @@ Source6: qpid-proton-0.39.0.tar.gz
 
 Patch0: imfile-deleteStateOnFileMove.patch
 Patch1001: CVE-2026-78002.patch
+# CVE-2026-19654 — upstream backport
+Patch1002: rsyslog-8.2412.0-CVE-2026-19654.patch
 
 BuildRequires: make
 BuildRequires: gcc
@@ -255,6 +257,7 @@ mv build doc
 %setup -q -D
 %patch -P 0 -p1
 %patch -P 1001 -p1
+%patch1002 -p1
 
 # Unpack qpid-proton for rhel
 %setup -q -D -T -b 6
@@ -521,6 +524,9 @@ done
 
 
 %changelog
+* Fri Sep 11 2026 Jason Rodriguez <jrodriguez@ciq.com> - 8.2412.0-1.2
+- Fix CVE-2026-19654
+
 * Tue Sep 01 2026 Pratham Patel <ppatel@ciq.com> - 8.2412.0-1.1
 - Fix CVE-2026-78002
 
