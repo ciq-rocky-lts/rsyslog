@@ -1,0 +1,65 @@
+From 48dd54fd6d1edeb5dcdde95935a3ca9d2a6ab52e Mon Sep 17 00:00:00 2001
+From: Rich Megginson <rmeggins@redhat.com>
+Date: Wed, 6 Mar 2019 10:23:28 -0700
+Subject: [PATCH] Bug 1684236 - rsyslog-8.24.0-34.el7.x86_64 SIGSEGV when using
+ rsyslog-elasticsearch-8.24.0-34
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1684236
+
+Cause: When omelasticsearch has a problem sending data to
+Elasticsearch because the connection was broken, the curl api
+returns an error code that was not being checked.  The
+omelasticsearch code also assumed that the reply field would
+always be allocated, but it is not in this error case.
+
+Consequence: rsyslog crashes when the connection to Elasticsearch
+is lost while attempting to send data to Elasticsearch.
+
+Fix: Check for the correct error code (CURLE_GOT_NOTHING), and
+also check that the reply field was allocated.
+
+Result: rsyslog does not crash when the connection to Elasticsearch
+is lost while attempting to send data to Elasticsearch.
+---
+ plugins/omelasticsearch/omelasticsearch.c | 12 +++++++++---
+ 1 file changed, 9 insertions(+), 3 deletions(-)
+
+diff --git a/plugins/omelasticsearch/omelasticsearch.c b/plugins/omelasticsearch/omelasticsearch.c
+index 248a369d2..d0c3f91d5 100644
+--- a/plugins/omelasticsearch/omelasticsearch.c
++++ b/plugins/omelasticsearch/omelasticsearch.c
+@@ -1431,6 +1431,7 @@ curlPost(wrkrInstanceData_t *pWrkrData, uchar *message, int msglen, uchar **tpls
+ 	    || code == CURLE_COULDNT_RESOLVE_PROXY
+ 	    || code == CURLE_COULDNT_CONNECT
+ 	    || code == CURLE_WRITE_ERROR
++	    || code == CURLE_GOT_NOTHING
+ 	   ) {
+ 		STATSCOUNTER_INC(indexHTTPReqFail, mutIndexHTTPReqFail);
+ 		indexHTTPFail += nmsgs;
+@@ -1441,15 +1442,20 @@ curlPost(wrkrInstanceData_t *pWrkrData, uchar *message, int msglen, uchar **tpls
+ 	}
+ 
+ 	DBGPRINTF("omelasticsearch: pWrkrData replyLen = '%d'\n", pWrkrData->replyLen);
+-	if(pWrkrData->replyLen > 0) {
++	if(NULL != pWrkrData->reply) {
++	    if(pWrkrData->replyLen > 0) {
+ 		pWrkrData->reply[pWrkrData->replyLen] = '\0'; /* Append 0 Byte if replyLen is above 0 - byte has been reserved in malloc */
++	    }
++	    CHKiRet(checkResult(pWrkrData, message));
++	    DBGPRINTF("omelasticsearch: pWrkrData reply: '%s'\n", pWrkrData->reply);
++	} else {
++	    DBGPRINTF("omelasticsearch: pWrkrData reply is NULL\n");
+ 	}
+-	DBGPRINTF("omelasticsearch: pWrkrData reply: '%s'\n", pWrkrData->reply);
+ 
+-	CHKiRet(checkResult(pWrkrData, message));
+ finalize_it:
+ 	incrementServerIndex(pWrkrData);
+ 	free(pWrkrData->reply);
++	pWrkrData->reply = NULL;
+ 	RETiRet;
+ }
+ 
+-- 
+2.20.1
+

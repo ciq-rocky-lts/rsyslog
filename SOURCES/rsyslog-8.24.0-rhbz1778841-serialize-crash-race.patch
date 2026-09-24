@@ -1,0 +1,33 @@
+From: Jiri Vymazal <jvymazal@redhat.com>
+Date: Wed, 18 Dec 2019 09:48:15 +0100
+Subject: [PATCH] Fix race condition related to libfastjson when using DA queue
+
+Rsyslogd aborts when writing to disk queue from multiple workers simultaneously.
+It is assumed that libfastjson is not thread-safe.
+Resolve libfastjson race condition when writing to disk queue.
+
+see also https://github.com/rsyslog/rsyslog/issues/4099
+---
+ runtime/msg.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/runtime/msg.c b/runtime/msg.c
+index b5c17cfdd4..f9da40005f 100644
+--- a/runtime/msg.c
++++ b/runtime/msg.c
+@@ -1211,11 +1211,15 @@ static rsRetVal MsgSerialize(smsg_t *pThis, strm_t *pStrm)
+ 	psz = pThis->pszStrucData; 
+ 	CHKiRet(obj.SerializeProp(pStrm, UCHAR_CONSTANT("pszStrucData"), PROPTYPE_PSZ, (void*) psz));
+ 	if(pThis->json != NULL) {
++		MsgLock(pThis);
+ 		psz = (uchar*) json_object_get_string(pThis->json);
++		MsgUnlock(pThis);
+ 		CHKiRet(obj.SerializeProp(pStrm, UCHAR_CONSTANT("json"), PROPTYPE_PSZ, (void*) psz));
+ 	}
+ 	if(pThis->localvars != NULL) {
++		MsgLock(pThis);
+ 		psz = (uchar*) json_object_get_string(pThis->localvars);
++		MsgUnlock(pThis);
+ 		CHKiRet(obj.SerializeProp(pStrm, UCHAR_CONSTANT("localvars"), PROPTYPE_PSZ, (void*) psz));
+ 	}
+ 

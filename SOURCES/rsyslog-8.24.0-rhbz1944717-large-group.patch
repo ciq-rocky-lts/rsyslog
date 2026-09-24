@@ -1,0 +1,42 @@
+diff -up rsyslog-8.24.0/grammar/rainerscript.c.doGetGID_overflow rsyslog-8.24.0/grammar/rainerscript.c
+--- rsyslog-8.24.0/grammar/rainerscript.c.doGetGID_overflow	2021-03-30 15:56:51.605271073 +0200
++++ rsyslog-8.24.0/grammar/rainerscript.c	2021-03-30 15:59:57.758153756 +0200
+@@ -832,12 +832,27 @@ doGetGID(struct nvlst *valnode, struct c
+ {
+ 	char *cstr;
+ 	int r;
+-	struct group *resultBuf;
++	struct group *resultBuf = NULL;
+ 	struct group wrkBuf;
+-	char stringBuf[2048]; /* 2048 has been proven to be large enough */
++	char *stringBuf = NULL;
++	size_t bufSize = 1024;
++	int e;
+ 
+ 	cstr = es_str2cstr(valnode->val.d.estr, NULL);
+-	getgrnam_r(cstr, &wrkBuf, stringBuf, sizeof(stringBuf), &resultBuf);
++	do {
++		char *p;
++
++		/* Increase bufsize and try again.*/
++		bufSize *= 2;
++		p = realloc(stringBuf, bufSize);
++		if(!p) {
++			e = ENOMEM;
++			break;
++		}
++		stringBuf = p;
++		e = getgrnam_r(cstr, &wrkBuf, stringBuf, bufSize, &resultBuf);
++	} while(!resultBuf && (e == ERANGE));
++
+ 	if(resultBuf == NULL) {
+ 		parser_errmsg("parameter '%s': ID for group %s could not "
+ 		  "be found", param->name, cstr);
+@@ -849,6 +864,7 @@ doGetGID(struct nvlst *valnode, struct c
+ 		   param->name, (int) resultBuf->gr_gid, cstr);
+ 		r = 1;
+ 	}
++	free(stringBuf);
+ 	free(cstr);
+ 	return r;
+ }

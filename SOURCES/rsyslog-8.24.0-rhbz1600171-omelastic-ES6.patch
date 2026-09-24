@@ -1,0 +1,34 @@
+From 8aca362e812827501f0545f4abea140f89fa87e3 Mon Sep 17 00:00:00 2001
+From: Rich Megginson <rmeggins@redhat.com>
+Date: Mon, 16 Jul 2018 15:55:35 -0600
+Subject: [PATCH] Bug 1600171 - Rsyslog omelasticsearch does not work with ES
+ 6.x strict headers
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1600171
+I did not attempt to backport all of the commits that
+touched this particular code, just the code that uses
+the macro for the content type.
+---
+ plugins/omelasticsearch/omelasticsearch.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/plugins/omelasticsearch/omelasticsearch.c b/plugins/omelasticsearch/omelasticsearch.c
+index 248a369d2..feb6425f7 100644
+--- a/plugins/omelasticsearch/omelasticsearch.c
++++ b/plugins/omelasticsearch/omelasticsearch.c
+@@ -1607,10 +1607,11 @@ curlPostSetup(CURL *handle, HEADER *header, uchar* authBuf, wrkrInstanceData_t *
+ 		curl_easy_setopt(handle, CURLOPT_SSLKEY, pWrkrData->pData->myPrivKeyFile);
+ }
+ 
++#define CONTENT_JSON "Content-Type: application/json; charset=utf-8"
+ static rsRetVal
+ curlSetup(wrkrInstanceData_t *pWrkrData, instanceData *pData)
+ {
+-	pWrkrData->curlHeader = curl_slist_append(NULL, "Content-Type: text/json; charset=utf-8");
++	pWrkrData->curlHeader = curl_slist_append(NULL, CONTENT_JSON);
+ 	pWrkrData->curlPostHandle = curl_easy_init();
+ 	if (pWrkrData->curlPostHandle == NULL) {
+ 		return RS_RET_OBJ_CREATION_FAILED;
+-- 
+2.17.1
+

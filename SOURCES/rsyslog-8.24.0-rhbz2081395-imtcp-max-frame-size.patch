@@ -1,0 +1,174 @@
+diff -up rsyslog-8.24.0/plugins/imtcp/imtcp.c.orig rsyslog-8.24.0/plugins/imtcp/imtcp.c
+--- rsyslog-8.24.0/plugins/imtcp/imtcp.c.orig	2022-05-11 20:33:33.602681381 +0200
++++ rsyslog-8.24.0/plugins/imtcp/imtcp.c	2022-05-11 20:37:23.478697046 +0200
+@@ -97,6 +97,7 @@ static struct configSettings_s {
+ 	int iKeepAliveTime;
+ 	int bEmitMsgOnClose;
+ 	int iAddtlFrameDelim;
++	int maxFrameSize;
+ 	int bDisableLFDelim;
+ 	int bUseFlowControl;
+ 	int bPreserveCase;
+@@ -131,6 +132,7 @@ struct modConfData_s {
+ 	int iAddtlFrameDelim; /* addtl frame delimiter, e.g. for netscreen, default none */
+ 	int bSuppOctetFram;
+ 	sbool bDisableLFDelim; /* disable standard LF delimiter */
++	int maxFrameSize;
+ 	sbool bUseFlowControl; /* use flow control, what means indicate ourselfs a "light delayable" */
+ 	sbool bKeepAlive;
+ 	int iKeepAliveIntvl;
+@@ -155,6 +157,7 @@ static struct cnfparamdescr modpdescr[]
+ 	{ "octetcountedframing", eCmdHdlrBinary, 0 },
+ 	{ "notifyonconnectionclose", eCmdHdlrBinary, 0 },
+ 	{ "addtlframedelimiter", eCmdHdlrNonNegInt, 0 },
++	{ "maxframesize", eCmdHdlrInt, 0 },
+ 	{ "maxsessions", eCmdHdlrPositiveInt, 0 },
+ 	{ "maxlistners", eCmdHdlrPositiveInt, 0 },
+ 	{ "maxlisteners", eCmdHdlrPositiveInt, 0 },
+@@ -363,6 +366,7 @@ addListner(modConfData_t *modConf, insta
+ 		CHKiRet(tcpsrv.SetDrvrMode(pOurTcpsrv, modConf->iStrmDrvrMode));
+ 		CHKiRet(tcpsrv.SetUseFlowControl(pOurTcpsrv, modConf->bUseFlowControl));
+ 		CHKiRet(tcpsrv.SetAddtlFrameDelim(pOurTcpsrv, modConf->iAddtlFrameDelim));
++		CHKiRet(tcpsrv.SetMaxFrameSize(pOurTcpsrv, modConf->maxFrameSize));
+ 		CHKiRet(tcpsrv.SetbDisableLFDelim(pOurTcpsrv, modConf->bDisableLFDelim));
+ 		CHKiRet(tcpsrv.SetNotificationOnRemoteClose(pOurTcpsrv, modConf->bEmitMsgOnClose));
+ 		/* now set optional params, but only if they were actually configured */
+@@ -466,6 +470,7 @@ CODESTARTbeginCnfLoad
+ 	loadModConf->iKeepAliveTime = 0;
+ 	loadModConf->bEmitMsgOnClose = 0;
+ 	loadModConf->iAddtlFrameDelim = TCPSRV_NO_ADDTL_DELIMITER;
++	loadModConf->maxFrameSize = 200000;
+ 	loadModConf->bDisableLFDelim = 0;
+ 	loadModConf->gnutlsPriorityString = NULL;
+ 	loadModConf->pszStrmDrvrName = NULL;
+@@ -509,6 +514,15 @@ CODESTARTsetModCnf
+ 			loadModConf->bEmitMsgOnClose = (int) pvals[i].val.d.n;
+ 		} else if(!strcmp(modpblk.descr[i].name, "addtlframedelimiter")) {
+ 			loadModConf->iAddtlFrameDelim = (int) pvals[i].val.d.n;
++		} else if(!strcmp(modpblk.descr[i].name, "maxframesize")) {
++			const int max = (int) pvals[i].val.d.n;
++			if(max <= 200000000) {
++				loadModConf->maxFrameSize = max;
++			} else {
++				errmsg.LogError(0, RS_RET_PARAM_ERROR, "imtcp: invalid value for 'maxFrameSize' "
++						"parameter given is %d, max is 200000000", max);
++				ABORT_FINALIZE(RS_RET_PARAM_ERROR);
++			}
+ 		} else if(!strcmp(modpblk.descr[i].name, "maxsessions")) {
+ 			loadModConf->iTCPSessMax = (int) pvals[i].val.d.n;
+ 		} else if(!strcmp(modpblk.descr[i].name, "maxlisteners") ||
+@@ -562,6 +576,7 @@ CODESTARTendCnfLoad
+ 		pModConf->bEmitMsgOnClose = cs.bEmitMsgOnClose;
+ 		pModConf->bSuppOctetFram = cs.bSuppOctetFram;
+ 		pModConf->iAddtlFrameDelim = cs.iAddtlFrameDelim;
++		pModConf->maxFrameSize = cs.maxFrameSize;
+ 		pModConf->bDisableLFDelim = cs.bDisableLFDelim;
+ 		pModConf->bUseFlowControl = cs.bUseFlowControl;
+ 		pModConf->bKeepAlive = cs.bKeepAlive;
+@@ -716,6 +731,7 @@ resetConfigVariables(uchar __attribute__
+ 	cs.iKeepAliveIntvl = 0;
+ 	cs.bEmitMsgOnClose = 0;
+ 	cs.iAddtlFrameDelim = TCPSRV_NO_ADDTL_DELIMITER;
++	cs.maxFrameSize = 200000;
+ 	cs.bDisableLFDelim = 0;
+ 	free(cs.pszInputName);
+ 	cs.pszInputName = NULL;
+diff -up rsyslog-8.24.0/runtime/tcpsrv.c.orig rsyslog-8.24.0/runtime/tcpsrv.c
+--- rsyslog-8.24.0/runtime/tcpsrv.c.orig	2022-05-11 20:40:43.367710666 +0200
++++ rsyslog-8.24.0/runtime/tcpsrv.c	2022-05-11 20:41:47.178715013 +0200
+@@ -976,6 +976,7 @@ BEGINobjConstruct(tcpsrv) /* be sure to
+ 	pThis->iSessMax = TCPSESS_MAX_DEFAULT;
+ 	pThis->iLstnMax = TCPLSTN_MAX_DEFAULT;
+ 	pThis->addtlFrameDelim = TCPSRV_NO_ADDTL_DELIMITER;
++	pThis->maxFrameSize = 200000;
+ 	pThis->bDisableLFDelim = 0;
+ 	pThis->OnMsgReceive = NULL;
+ 	pThis->dfltTZ[0] = '\0';
+@@ -1220,6 +1221,16 @@ SetAddtlFrameDelim(tcpsrv_t *pThis, int
+ 	RETiRet;
+ }
+ 
++/* Set max frame size for octet counted -- PascalWithopf, 2017-04-20*/
++static rsRetVal
++SetMaxFrameSize(tcpsrv_t *pThis, int maxFrameSize)
++{
++	DEFiRet;
++	ISOBJ_TYPE_assert(pThis, tcpsrv);
++	pThis->maxFrameSize = maxFrameSize;
++	RETiRet;
++}
++
+ 
+ static rsRetVal
+ SetDfltTZ(tcpsrv_t *pThis, uchar *tz)
+@@ -1436,6 +1447,7 @@ CODESTARTobjQueryInterface(tcpsrv)
+ 	pIf->SetDfltTZ = SetDfltTZ;
+ 	pIf->SetbSPFramingFix = SetbSPFramingFix;
+ 	pIf->SetAddtlFrameDelim = SetAddtlFrameDelim;
++	pIf->SetMaxFrameSize = SetMaxFrameSize;
+ 	pIf->SetbDisableLFDelim = SetbDisableLFDelim;
+ 	pIf->SetSessMax = SetSessMax;
+ 	pIf->SetUseFlowControl = SetUseFlowControl;
+diff -up rsyslog-8.24.0/runtime/tcpsrv.h.orig rsyslog-8.24.0/runtime/tcpsrv.h
+--- rsyslog-8.24.0/runtime/tcpsrv.h.orig	2022-05-11 20:42:08.641716477 +0200
++++ rsyslog-8.24.0/runtime/tcpsrv.h	2022-05-11 20:42:55.716719682 +0200
+@@ -81,6 +81,7 @@ struct tcpsrv_s {
+ 	tcpLstnPortList_t *pLstnPorts;	/**< head pointer for listen ports */
+ 
+ 	int addtlFrameDelim;	/**< additional frame delimiter for plain TCP syslog framing (e.g. to handle NetScreen) */
++	int maxFrameSize; /**< max frame size for octet counted*/
+ 	int bDisableLFDelim;	/**< if 1, standard LF frame delimiter is disabled (*very dangerous*) */
+ 	sbool bPreserveCase;	/**< preserve case in fromhost */
+ 	int ratelimitInterval;
+@@ -126,6 +127,7 @@ BEGINinterface(tcpsrv) /* name must also
+ 	rsRetVal (*Run)(tcpsrv_t *pThis);
+ 	/* set methods */
+ 	rsRetVal (*SetAddtlFrameDelim)(tcpsrv_t*, int);
++	rsRetVal (*SetMaxFrameSize)(tcpsrv_t*, int);
+ 	rsRetVal (*SetInputName)(tcpsrv_t*, uchar*);
+ 	rsRetVal (*SetUsrP)(tcpsrv_t*, void*);
+ 	rsRetVal (*SetCBIsPermittedHost)(tcpsrv_t*, int (*) (struct sockaddr *addr, char*, void*, void*));
+diff -up rsyslog-8.24.0/runtime/tcps_sess.c.orig rsyslog-8.24.0/runtime/tcps_sess.c
+--- rsyslog-8.24.0/runtime/tcps_sess.c.orig	2022-05-11 20:37:50.373698878 +0200
++++ rsyslog-8.24.0/runtime/tcps_sess.c	2022-05-11 20:40:03.432707946 +0200
+@@ -383,7 +383,11 @@ processDataRcvd(tcps_sess_t *pThis,
+ 
+ 	if(pThis->inputState == eInOctetCnt) {
+ 		if(c >= '0' && c <= '9') { /* isdigit() the faster way */
+-			pThis->iOctetsRemain = pThis->iOctetsRemain * 10 + c - '0';
++			// pThis->iOctetsRemain = pThis->iOctetsRemain * 10 + c - '0';
++			if(pThis->iOctetsRemain <= 200000000) {
++				pThis->iOctetsRemain = pThis->iOctetsRemain * 10 + c - '0';
++			}
++			*(pThis->pMsg + pThis->iMsg++) = c;
+ 		} else { /* done with the octet count, so this must be the SP terminator */
+ 			DBGPRINTF("TCP Message with octet-counter, size %d.\n", pThis->iOctetsRemain);
+ 			if(c != ' ') {
+@@ -392,18 +396,24 @@ processDataRcvd(tcps_sess_t *pThis,
+ 			}
+ 			if(pThis->iOctetsRemain < 1) {
+ 				/* TODO: handle the case where the octet count is 0! */
+-				DBGPRINTF("Framing Error: invalid octet count\n");
++				//DBGPRINTF("Framing Error: invalid octet count\n");
+ 				errmsg.LogError(0, NO_ERRCODE, "Framing Error in received TCP message: "
+ 					    "invalid octet count %d.", pThis->iOctetsRemain);
++				pThis->eFraming = TCP_FRAMING_OCTET_STUFFING;
+ 			} else if(pThis->iOctetsRemain > iMaxLine) {
+ 				/* while we can not do anything against it, we can at least log an indication
+ 				 * that something went wrong) -- rgerhards, 2008-03-14
+ 				 */
+-				DBGPRINTF("truncating message with %d octets - max msg size is %d\n",
+-					  pThis->iOctetsRemain, iMaxLine);
+ 				errmsg.LogError(0, NO_ERRCODE, "received oversize message: size is %d bytes, "
+ 					        "max msg size is %d, truncating...", pThis->iOctetsRemain, iMaxLine);
+ 			}
++			if(pThis->iOctetsRemain > pThis->pSrv->maxFrameSize) {
++				errmsg.LogError(0, NO_ERRCODE, "Framing Error in received TCP message: "
++						"frame too large: %d, change to octet stuffing", pThis->iOctetsRemain);
++				pThis->eFraming = TCP_FRAMING_OCTET_STUFFING;
++			} else {
++				pThis->iMsg = 0;
++			}
+ 			pThis->inputState = eInMsg;
+ 		}
+ 	} else {

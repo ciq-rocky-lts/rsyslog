@@ -1,0 +1,30 @@
+diff -up rsyslog-8.24.0/plugins/imptcp/imptcp.c.orig rsyslog-8.24.0/plugins/imptcp/imptcp.c
+--- rsyslog-8.24.0/plugins/imptcp/imptcp.c.orig	2022-05-11 20:48:30.831875914 +0200
++++ rsyslog-8.24.0/plugins/imptcp/imptcp.c	2022-05-11 21:04:23.627185597 +0200
+@@ -882,7 +882,10 @@ processDataRcvd(ptcpsess_t *const __rest
+ 				pThis->eFraming = TCP_FRAMING_OCTET_STUFFING;
+ 				pThis->inputState = eInMsg;
+ 			}
+-			*(pThis->pMsg + pThis->iMsg++) = c;
++			//*(pThis->pMsg + pThis->iMsg++) = c;
++			if(pThis->iMsg < iMaxLine) {
++				*(pThis->pMsg + pThis->iMsg++) = c;
++			}
+ 		} else { /* done with the octet count, so this must be the SP terminator */
+ 			DBGPRINTF("TCP Message with octet-counter, size %d.\n", pThis->iOctetsRemain);
+ 			if(c != ' ') {
+diff -up rsyslog-8.24.0/runtime/tcps_sess.c.orig rsyslog-8.24.0/runtime/tcps_sess.c
+--- rsyslog-8.24.0/runtime/tcps_sess.c.orig	2022-05-11 20:48:39.088880940 +0200
++++ rsyslog-8.24.0/runtime/tcps_sess.c	2022-05-11 21:05:35.875196386 +0200
+@@ -387,7 +387,10 @@ processDataRcvd(tcps_sess_t *pThis,
+ 			if(pThis->iOctetsRemain <= 200000000) {
+ 				pThis->iOctetsRemain = pThis->iOctetsRemain * 10 + c - '0';
+ 			}
+-			*(pThis->pMsg + pThis->iMsg++) = c;
++			// *(pThis->pMsg + pThis->iMsg++) = c;
++			if(pThis->iMsg < iMaxLine) {
++				*(pThis->pMsg + pThis->iMsg++) = c;
++			}
+ 		} else { /* done with the octet count, so this must be the SP terminator */
+ 			DBGPRINTF("TCP Message with octet-counter, size %d.\n", pThis->iOctetsRemain);
+ 			if(c != ' ') {

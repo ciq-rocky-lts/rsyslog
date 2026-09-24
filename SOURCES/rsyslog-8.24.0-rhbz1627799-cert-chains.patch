@@ -1,0 +1,622 @@
+diff -up rsyslog-8.24.0/plugins/imtcp/imtcp.c.v36tls rsyslog-8.24.0/plugins/imtcp/imtcp.c
+--- rsyslog-8.24.0/plugins/imtcp/imtcp.c.v36tls	2019-08-19 17:37:07.872166694 +0100
++++ rsyslog-8.24.0/plugins/imtcp/imtcp.c	2019-08-19 17:37:07.876166693 +0100
+@@ -100,6 +100,7 @@ static struct configSettings_s {
+ 	int bDisableLFDelim;
+ 	int bUseFlowControl;
+ 	int bPreserveCase;
++	uchar *gnutlsPriorityString;
+ 	uchar *pszStrmDrvrAuthMode;
+ 	uchar *pszInputName;
+ 	uchar *pszBindRuleset;
+@@ -136,6 +137,7 @@ struct modConfData_s {
+ 	int iKeepAliveProbes;
+ 	int iKeepAliveTime;
+ 	sbool bEmitMsgOnClose; /* emit an informational message on close by remote peer */
++	uchar *gnutlsPriorityString;
+ 	uchar *pszStrmDrvrName; /* stream driver to use */
+ 	uchar *pszStrmDrvrAuthMode; /* authentication mode to use */
+ 	struct cnfarray *permittedPeers;
+@@ -164,7 +166,8 @@ static struct cnfparamdescr modpdescr[]
+ 	{ "keepalive.probes", eCmdHdlrPositiveInt, 0 },
+ 	{ "keepalive.time", eCmdHdlrPositiveInt, 0 },
+ 	{ "keepalive.interval", eCmdHdlrPositiveInt, 0 },
+-	{ "preservecase", eCmdHdlrBinary, 0 }
++	{ "preservecase", eCmdHdlrBinary, 0 },
++	{ "gnutlsprioritystring", eCmdHdlrString, 0 }
+ };
+ static struct cnfparamblk modpblk =
+ 	{ CNFPARAMBLK_VERSION,
+@@ -354,6 +357,7 @@ addListner(modConfData_t *modConf, insta
+ 		CHKiRet(tcpsrv.SetKeepAliveIntvl(pOurTcpsrv, modConf->iKeepAliveIntvl));
+ 		CHKiRet(tcpsrv.SetKeepAliveProbes(pOurTcpsrv, modConf->iKeepAliveProbes));
+ 		CHKiRet(tcpsrv.SetKeepAliveTime(pOurTcpsrv, modConf->iKeepAliveTime));
++		CHKiRet(tcpsrv.SetGnutlsPriorityString(pOurTcpsrv, modConf->gnutlsPriorityString));
+ 		CHKiRet(tcpsrv.SetSessMax(pOurTcpsrv, modConf->iTCPSessMax));
+ 		CHKiRet(tcpsrv.SetLstnMax(pOurTcpsrv, modConf->iTCPLstnMax));
+ 		CHKiRet(tcpsrv.SetDrvrMode(pOurTcpsrv, modConf->iStrmDrvrMode));
+@@ -463,6 +467,7 @@ CODESTARTbeginCnfLoad
+ 	loadModConf->bEmitMsgOnClose = 0;
+ 	loadModConf->iAddtlFrameDelim = TCPSRV_NO_ADDTL_DELIMITER;
+ 	loadModConf->bDisableLFDelim = 0;
++	loadModConf->gnutlsPriorityString = NULL;
+ 	loadModConf->pszStrmDrvrName = NULL;
+ 	loadModConf->pszStrmDrvrAuthMode = NULL;
+ 	loadModConf->permittedPeers = NULL;
+@@ -517,6 +522,8 @@ CODESTARTsetModCnf
+ 			loadModConf->iKeepAliveTime = (int) pvals[i].val.d.n;
+ 		} else if(!strcmp(modpblk.descr[i].name, "keepalive.interval")) {
+ 			loadModConf->iKeepAliveIntvl = (int) pvals[i].val.d.n;
++		} else if(!strcmp(modpblk.descr[i].name, "gnutlsprioritystring")) {
++			loadModConf->gnutlsPriorityString = (uchar*)es_str2cstr(pvals[i].val.d.estr, NULL);
+ 		} else if(!strcmp(modpblk.descr[i].name, "streamdriver.mode")) {
+ 			loadModConf->iStrmDrvrMode = (int) pvals[i].val.d.n;
+ 		} else if(!strcmp(modpblk.descr[i].name, "streamdriver.authmode")) {
+diff -up rsyslog-8.24.0/runtime/netstrm.c.v36tls rsyslog-8.24.0/runtime/netstrm.c
+--- rsyslog-8.24.0/runtime/netstrm.c.v36tls	2017-01-10 09:00:04.000000000 +0000
++++ rsyslog-8.24.0/runtime/netstrm.c	2019-08-19 17:37:07.876166693 +0100
+@@ -280,6 +280,16 @@ SetKeepAliveIntvl(netstrm_t *pThis, int
+ 	RETiRet;
+ }
+ 
++/* gnutls priority string */
++static rsRetVal
++SetGnutlsPriorityString(netstrm_t *pThis, uchar *gnutlsPriorityString)
++{
++	DEFiRet;
++	ISOBJ_TYPE_assert(pThis, netstrm);
++	iRet = pThis->Drvr.SetGnutlsPriorityString(pThis->pDrvrData, gnutlsPriorityString);
++	RETiRet;
++}
++
+ /* check connection - slim wrapper for NSD driver function */
+ static rsRetVal
+ CheckConnection(netstrm_t *pThis)
+@@ -387,6 +397,7 @@ CODESTARTobjQueryInterface(netstrm)
+ 	pIf->SetKeepAliveProbes = SetKeepAliveProbes;
+ 	pIf->SetKeepAliveTime = SetKeepAliveTime;
+ 	pIf->SetKeepAliveIntvl = SetKeepAliveIntvl;
++	pIf->SetGnutlsPriorityString = SetGnutlsPriorityString;
+ finalize_it:
+ ENDobjQueryInterface(netstrm)
+ 
+diff -up rsyslog-8.24.0/runtime/netstrm.h.v36tls rsyslog-8.24.0/runtime/netstrm.h
+--- rsyslog-8.24.0/runtime/netstrm.h.v36tls	2017-01-10 09:00:04.000000000 +0000
++++ rsyslog-8.24.0/runtime/netstrm.h	2019-08-19 17:37:07.876166693 +0100
+@@ -75,14 +75,16 @@ BEGINinterface(netstrm) /* name must als
+ 	rsRetVal (*SetKeepAliveProbes)(netstrm_t *pThis, int keepAliveProbes);
+ 	rsRetVal (*SetKeepAliveTime)(netstrm_t *pThis, int keepAliveTime);
+ 	rsRetVal (*SetKeepAliveIntvl)(netstrm_t *pThis, int keepAliveIntvl);
++	rsRetVal (*SetGnutlsPriorityString)(netstrm_t *pThis, uchar *priorityString);
+ ENDinterface(netstrm)
+-#define netstrmCURR_IF_VERSION 8 /* increment whenever you change the interface structure! */
++#define netstrmCURR_IF_VERSION 9 /* increment whenever you change the interface structure! */
+ /* interface version 3 added GetRemAddr()
+  * interface version 4 added EnableKeepAlive() -- rgerhards, 2009-06-02
+  * interface version 5 changed return of CheckConnection from void to rsRetVal -- alorbach, 2012-09-06
+  * interface version 6 changed signature of GetRemoteIP() -- rgerhards, 2013-01-21
+  * interface version 7 added KeepAlive parameter set functions
+  * interface version 8 changed signature of Connect() -- dsa, 2016-11-14
++ * interface version 9 added SetGnutlsPriorityString -- PascalWithopf, 2017-08-08
+  * */
+ 
+ /* prototypes */
+diff -up rsyslog-8.24.0/runtime/netstrms.c.v36tls rsyslog-8.24.0/runtime/netstrms.c
+--- rsyslog-8.24.0/runtime/netstrms.c.v36tls	2016-12-03 17:41:03.000000000 +0000
++++ rsyslog-8.24.0/runtime/netstrms.c	2019-08-19 17:37:07.876166693 +0100
+@@ -113,6 +113,10 @@ CODESTARTobjDestruct(netstrms)
+ 		free(pThis->pBaseDrvrName);
+ 		pThis->pBaseDrvrName = NULL;
+ 	}
++	if(pThis->gnutlsPriorityString != NULL) {
++		free(pThis->gnutlsPriorityString);
++		pThis->gnutlsPriorityString = NULL;
++	}
+ ENDobjDestruct(netstrms)
+ 
+ 
+@@ -196,6 +200,31 @@ GetDrvrAuthMode(netstrms_t *pThis)
+ }
+ 
+ 
++/* Set the priorityString for GnuTLS
++ * PascalWithopf 2017-08-16
++ */
++static rsRetVal
++SetDrvrGnutlsPriorityString(netstrms_t *pThis, uchar *iVal)
++{
++	DEFiRet;
++	ISOBJ_TYPE_assert(pThis, netstrms);
++	CHKmalloc(pThis->gnutlsPriorityString = (uchar*)strdup((char*)iVal));
++finalize_it:
++	RETiRet;
++}
++
++
++/* return the priorityString for GnuTLS
++ * PascalWithopf, 2017-08-16
++ */
++static uchar*
++GetDrvrGnutlsPriorityString(netstrms_t *pThis)
++{
++	ISOBJ_TYPE_assert(pThis, netstrms);
++	return pThis->gnutlsPriorityString;
++}
++
++
+ /* set the driver mode -- rgerhards, 2008-04-30 */
+ static rsRetVal
+ SetDrvrMode(netstrms_t *pThis, int iMode)
+@@ -272,6 +301,8 @@ CODESTARTobjQueryInterface(netstrms)
+ 	pIf->GetDrvrMode = GetDrvrMode;
+ 	pIf->SetDrvrAuthMode = SetDrvrAuthMode;
+ 	pIf->GetDrvrAuthMode = GetDrvrAuthMode;
++	pIf->SetDrvrGnutlsPriorityString = SetDrvrGnutlsPriorityString;
++	pIf->GetDrvrGnutlsPriorityString = GetDrvrGnutlsPriorityString;
+ 	pIf->SetDrvrPermPeers = SetDrvrPermPeers;
+ 	pIf->GetDrvrPermPeers = GetDrvrPermPeers;
+ finalize_it:
+diff -up rsyslog-8.24.0/runtime/netstrms.h.v36tls rsyslog-8.24.0/runtime/netstrms.h
+--- rsyslog-8.24.0/runtime/netstrms.h.v36tls	2016-12-03 17:41:03.000000000 +0000
++++ rsyslog-8.24.0/runtime/netstrms.h	2019-08-19 17:37:07.876166693 +0100
+@@ -33,6 +33,7 @@ struct netstrms_s {
+ 	uchar *pDrvrName;	/**< full base driver name (set when driver is loaded) */
+ 	int iDrvrMode;		/**< current default driver mode */
+ 	uchar *pszDrvrAuthMode;	/**< current driver authentication mode */
++	uchar *gnutlsPriorityString; /**< priorityString for connection */
+ 	permittedPeers_t *pPermPeers;/**< current driver's permitted peers */
+ 
+ 	nsd_if_t Drvr;		/**< our stream driver */
+@@ -52,6 +53,8 @@ BEGINinterface(netstrms) /* name must al
+ 	int      (*GetDrvrMode)(netstrms_t *pThis);
+ 	uchar*   (*GetDrvrAuthMode)(netstrms_t *pThis);
+ 	permittedPeers_t* (*GetDrvrPermPeers)(netstrms_t *pThis);
++	rsRetVal (*SetDrvrGnutlsPriorityString)(netstrms_t *pThis, uchar*);
++	uchar*   (*GetDrvrGnutlsPriorityString)(netstrms_t *pThis);
+ ENDinterface(netstrms)
+ #define netstrmsCURR_IF_VERSION 1 /* increment whenever you change the interface structure! */
+ 
+diff -up rsyslog-8.24.0/runtime/nsd_gtls.c.v36tls rsyslog-8.24.0/runtime/nsd_gtls.c
+--- rsyslog-8.24.0/runtime/nsd_gtls.c.v36tls	2017-01-10 09:00:04.000000000 +0000
++++ rsyslog-8.24.0/runtime/nsd_gtls.c	2019-08-19 17:39:30.576158227 +0100
+@@ -73,8 +73,20 @@ DEFobjCurrIf(nsd_ptcp)
+ 
+ static int bGlblSrvrInitDone = 0;	/**< 0 - server global init not yet done, 1 - already done */
+ 
+-static pthread_mutex_t mutGtlsStrerror; /**< a mutex protecting the potentially non-reentrant gtlStrerror() function */
++static pthread_mutex_t mutGtlsStrerror;
++/*< a mutex protecting the potentially non-reentrant gtlStrerror() function */
+ 
++/* a macro to abort if GnuTLS error is not acceptable. We split this off from
++ * CHKgnutls() to avoid some Coverity report in cases where we know GnuTLS
++ * failed. Note: gnuRet must already be set accordingly!
++ */
++#define ABORTgnutls { \
++		uchar *pErr = gtlsStrerror(gnuRet); \
++		LogError(0, RS_RET_GNUTLS_ERR, "unexpected GnuTLS error %d in %s:%d: %s\n", \
++	gnuRet, __FILE__, __LINE__, pErr); \
++		free(pErr); \
++		ABORT_FINALIZE(RS_RET_GNUTLS_ERR); \
++}
+ /* a macro to check GnuTLS calls against unexpected errors */
+ #define CHKgnutls(x) { \
+ 	gnuRet = (x); \
+@@ -82,10 +94,7 @@ static pthread_mutex_t mutGtlsStrerror;
+ 		errmsg.LogError(0, RS_RET_GNUTLS_ERR, "error reading file - a common cause is that the file  does not exist"); \
+ 		ABORT_FINALIZE(RS_RET_GNUTLS_ERR); \
+ 	} else if(gnuRet != 0) { \
+-		uchar *pErr = gtlsStrerror(gnuRet); \
+-		errmsg.LogError(0, RS_RET_GNUTLS_ERR, "unexpected GnuTLS error %d in %s:%d: %s\n", gnuRet, __FILE__, __LINE__, pErr); \
+-		free(pErr); \
+-		ABORT_FINALIZE(RS_RET_GNUTLS_ERR); \
++		ABORTgnutls; \
+ 	} \
+ }
+ 
+@@ -192,9 +201,13 @@ gtlsLoadOurCertKey(nsd_gtls_t *pThis)
+ 
+ 	/* try load certificate */
+ 	CHKiRet(readFile(certFile, &data));
+-	CHKgnutls(gnutls_x509_crt_init(&pThis->ourCert));
+	pThis->bOurCertIsInit = 1;
+-	CHKgnutls(gnutls_x509_crt_import(pThis->ourCert, &data, GNUTLS_X509_FMT_PEM));
++	pThis->nOurCerts = sizeof(pThis->pOurCerts) / sizeof(gnutls_x509_crt_t);
++	gnuRet = gnutls_x509_crt_list_import(pThis->pOurCerts, &pThis->nOurCerts,
++		&data, GNUTLS_X509_FMT_PEM,  GNUTLS_X509_CRT_LIST_IMPORT_FAIL_IF_EXCEED);
++	if(gnuRet < 0) {
++		ABORTgnutls;
++	}
+ 	free(data.data);
+ 	data.data = NULL;
+ 
+@@ -210,7 +222,9 @@ finalize_it:
+ 		if(data.data != NULL)
+ 			free(data.data);
+ 		if(pThis->bOurCertIsInit) {
+-			gnutls_x509_crt_deinit(pThis->ourCert);
++			for(unsigned i=0; i<pThis->nOurCerts; ++i) {
++				gnutls_x509_crt_deinit(pThis->pOurCerts[i]);
++			}
+ 			pThis->bOurCertIsInit = 0;
+ 		}
+ 		if(pThis->bOurKeyIsInit) {
+@@ -255,8 +269,8 @@ gtlsClientCertCallback(gnutls_session_t
+ #else
+ 	st->type = GNUTLS_CRT_X509;
+ #endif
+-	st->ncerts = 1;
+-	st->cert.x509 = &pThis->ourCert;
++	st->ncerts = pThis->nOurCerts;
++	st->cert.x509 = pThis->pOurCerts;
+ 	st->key.x509 = pThis->ourKey;
+ 	st->deinit_all = 0;
+ 
+@@ -532,8 +546,8 @@ gtlsRecordRecv(nsd_gtls_t *pThis)
+ 		dbgprintf("GnuTLS receive requires a retry (this most probably is OK and no error condition)\n");
+ 		ABORT_FINALIZE(RS_RET_RETRY);
+ 	} else {
+-		int gnuRet; /* TODO: build a specific function for GnuTLS error reporting */
+-		CHKgnutls(lenRcvd); /* this will abort the function */
++		int gnuRet = lenRcvd;
++		ABORTgnutls;
+ 	}
+ 
+ finalize_it:
+@@ -646,7 +660,7 @@ gtlsInitSession(nsd_gtls_t *pThis)
+ 	pThis->bIsInitiator = 0;
+ 
+ 	/* avoid calling all the priority functions, since the defaults are adequate. */
+-	CHKgnutls(gnutls_set_default_priority(session));
++
+ 	CHKgnutls(gnutls_credentials_set(session, GNUTLS_CRD_CERTIFICATE, xcred));
+ 
+ 	/* request client certificate if any.  */
+@@ -1204,7 +1218,9 @@ CODESTARTobjDestruct(nsd_gtls)
+ 	}
+ 
+ 	if(pThis->bOurCertIsInit)
+-		gnutls_x509_crt_deinit(pThis->ourCert);
++                for(unsigned i=0; i<pThis->nOurCerts; ++i) {
++			gnutls_x509_crt_deinit(pThis->pOurCerts[i]);
++                }
+ 	if(pThis->bOurKeyIsInit)
+ 		gnutls_x509_privkey_deinit(pThis->ourKey);
+ 	if(pThis->bHaveSess)
+@@ -1299,6 +1315,21 @@ finalize_it:
+ }
+ 
+ 
++/* gnutls priority string
++ * PascalWithopf 2017-08-16
++ */
++static rsRetVal
++SetGnutlsPriorityString(nsd_t *pNsd, uchar *gnutlsPriorityString)
++{
++	DEFiRet;
++	nsd_gtls_t *pThis = (nsd_gtls_t*) pNsd;
++
++	ISOBJ_TYPE_assert((pThis), nsd_gtls);
++	pThis->gnutlsPriorityString = gnutlsPriorityString;
++	RETiRet;
++}
++
++
+ /* Provide access to the underlying OS socket. This is primarily
+  * useful for other drivers (like nsd_gtls) who utilize ourselfs
+  * for some of their functionality. -- rgerhards, 2008-04-18
+@@ -1476,6 +1507,7 @@ AcceptConnReq(nsd_t *pNsd, nsd_t **ppNew
+ 	int gnuRet;
+ 	nsd_gtls_t *pNew = NULL;
+ 	nsd_gtls_t *pThis = (nsd_gtls_t*) pNsd;
++	const char *error_position;
+ 
+ 	ISOBJ_TYPE_assert((pThis), nsd_gtls);
+ 	CHKiRet(nsd_gtlsConstruct(&pNew)); // TODO: prevent construct/destruct!
+@@ -1493,6 +1525,19 @@ AcceptConnReq(nsd_t *pNsd, nsd_t **ppNew
+ 	gtlsSetTransportPtr(pNew, ((nsd_ptcp_t*) (pNew->pTcp))->sock);
+ 	pNew->authMode = pThis->authMode;
+ 	pNew->pPermPeers = pThis->pPermPeers;
++	pNew->gnutlsPriorityString = pThis->gnutlsPriorityString;
++	/* here is the priorityString set */
++	if(pNew->gnutlsPriorityString != NULL) {
++		if(gnutls_priority_set_direct(pNew->sess,
++					(const char*) pNew->gnutlsPriorityString,
++					&error_position)==GNUTLS_E_INVALID_REQUEST) {
++			LogError(0, RS_RET_GNUTLS_ERR, "Syntax Error in"
++					" Priority String: \"%s\"\n", error_position);
++		}
++	} else {
++		/* Use default priorities */
++		CHKgnutls(gnutls_set_default_priority(pNew->sess));
++	}
+ 
+ 	/* we now do the handshake. This is a bit complicated, because we are 
+ 	 * on non-blocking sockets. Usually, the handshake will not complete
+@@ -1673,6 +1718,31 @@ EnableKeepAlive(nsd_t *pNsd)
+ 	return nsd_ptcp.EnableKeepAlive(pThis->pTcp);
+ }
+ 
++/*
++ * SNI should not be used if the hostname is a bare IP address
++ */
++static int
++SetServerNameIfPresent(nsd_gtls_t *pThis, uchar *host) {
++	struct sockaddr_in sa;
++	struct sockaddr_in6 sa6;
++
++	int inet_pton_ret = inet_pton(AF_INET, CHAR_CONVERT(host), &(sa.sin_addr));
++
++	if (inet_pton_ret == 0) { // host wasn't a bare IPv4 address: try IPv6
++		inet_pton_ret = inet_pton(AF_INET6, CHAR_CONVERT(host), &(sa6.sin6_addr));
++	}
++
++	switch(inet_pton_ret) {
++		case 1: // host is a valid IP address: don't use SNI
++			return 0;
++		case 0: // host isn't a valid IP address: assume it's a domain name, use SNI
++			return gnutls_server_name_set(pThis->sess, GNUTLS_NAME_DNS, host, ustrlen(host));
++		default: // unexpected error
++			return -1;
++	}
++
++}
++
+ /* open a connection to a remote host (server). With GnuTLS, we always
+  * open a plain tcp socket and then, if in TLS mode, do a handshake on it.
+  * rgerhards, 2008-03-19
+@@ -1685,6 +1755,7 @@ Connect(nsd_t *pNsd, int family, uchar *
+ 	nsd_gtls_t *pThis = (nsd_gtls_t*) pNsd;
+ 	int sock;
+ 	int gnuRet;
++	const char *error_position;
+ #	ifdef HAVE_GNUTLS_CERTIFICATE_TYPE_SET_PRIORITY
+ 	static const int cert_type_priority[2] = { GNUTLS_CRT_X509, 0 };
+ #	endif
+@@ -1704,6 +1775,8 @@ Connect(nsd_t *pNsd, int family, uchar *
+ 	pThis->bHaveSess = 1;
+ 	pThis->bIsInitiator = 1;
+ 
++	CHKgnutls(SetServerNameIfPresent(pThis, host));
++
+ 	/* in the client case, we need to set a callback that ensures our certificate
+ 	 * will be presented to the server even if it is not signed by one of the server's
+ 	 * trusted roots. This is necessary to support fingerprint authentication.
+@@ -1721,8 +1794,19 @@ Connect(nsd_t *pNsd, int family, uchar *
+ 		FINALIZE; /* we have an error case! */
+ 	}
+ 
+-	/* Use default priorities */
+-	CHKgnutls(gnutls_set_default_priority(pThis->sess));
++	/*priority string setzen*/
++	if(pThis->gnutlsPriorityString != NULL) {
++		if(gnutls_priority_set_direct(pThis->sess,
++					(const char*) pThis->gnutlsPriorityString,
++					&error_position)==GNUTLS_E_INVALID_REQUEST) {
++			LogError(0, RS_RET_GNUTLS_ERR, "Syntax Error in"
++					" Priority String: \"%s\"\n", error_position);
++		}
++	} else {
++		/* Use default priorities */
++		CHKgnutls(gnutls_set_default_priority(pThis->sess));
++	}
++
+ #	ifdef HAVE_GNUTLS_CERTIFICATE_TYPE_SET_PRIORITY
+ 	/* The gnutls_certificate_type_set_priority function is deprecated
+ 	 * and not available in recent GnuTLS versions. However, there is no
+@@ -1806,6 +1890,7 @@ CODESTARTobjQueryInterface(nsd_gtls)
+ 	pIf->SetKeepAliveIntvl = SetKeepAliveIntvl;
+ 	pIf->SetKeepAliveProbes = SetKeepAliveProbes;
+ 	pIf->SetKeepAliveTime = SetKeepAliveTime;
++	pIf->SetGnutlsPriorityString = SetGnutlsPriorityString;
+ finalize_it:
+ ENDobjQueryInterface(nsd_gtls)
+ 
+diff -up rsyslog-8.24.0/runtime/nsd_gtls.h.v36tls rsyslog-8.24.0/runtime/nsd_gtls.h
+--- rsyslog-8.24.0/runtime/nsd_gtls.h.v36tls	2016-12-03 17:41:03.000000000 +0000
++++ rsyslog-8.24.0/runtime/nsd_gtls.h	2019-08-19 17:37:07.878166693 +0100
+@@ -25,6 +25,7 @@
+ #include "nsd.h"
+ 
+ #define NSD_GTLS_MAX_RCVBUF 8 * 1024 /* max size of buffer for message reception */
++#define NSD_GTLS_MAX_CERT 10 /* max number of certs in our chain */
+ 
+ typedef enum {
+ 	gtlsRtry_None = 0,	/**< no call needs to be retried */
+@@ -56,7 +57,10 @@ struct nsd_gtls_s {
+ 				 * set to 1 and changed to 0 after the first report. It is changed back to 1 after
+ 				 * one successful authentication. */
+ 	permittedPeers_t *pPermPeers; /* permitted peers */
+-	gnutls_x509_crt_t ourCert;	/**< our certificate, if in client mode (unused in server mode) */
++	uchar *gnutlsPriorityString;	/* gnutls priority string */
++	gnutls_x509_crt_t pOurCerts[NSD_GTLS_MAX_CERT];	/**< our certificate, if in client mode
++							(unused in server mode) */
++	unsigned int nOurCerts;  /* number of certificates in our chain */
+ 	gnutls_x509_privkey_t ourKey;	/**< our private key, if in client mode (unused in server mode) */
+ 	short	bOurCertIsInit;	/**< 1 if our certificate is initialized and must be deinit on destruction */
+ 	short	bOurKeyIsInit;	/**< 1 if our private key is initialized and must be deinit on destruction */
+diff -up rsyslog-8.24.0/runtime/nsd.h.v36tls rsyslog-8.24.0/runtime/nsd.h
+--- rsyslog-8.24.0/runtime/nsd.h.v36tls	2017-01-10 09:00:04.000000000 +0000
++++ rsyslog-8.24.0/runtime/nsd.h	2019-08-19 17:37:07.878166693 +0100
+@@ -83,14 +83,17 @@ BEGINinterface(nsd) /* name must also be
+ 	rsRetVal (*SetKeepAliveIntvl)(nsd_t *pThis, int keepAliveIntvl);
+ 	rsRetVal (*SetKeepAliveProbes)(nsd_t *pThis, int keepAliveProbes);
+ 	rsRetVal (*SetKeepAliveTime)(nsd_t *pThis, int keepAliveTime);
++	/* v10 */
++	rsRetVal (*SetGnutlsPriorityString)(nsd_t *pThis, uchar *gnutlsPriorityString);
+ ENDinterface(nsd)
+-#define nsdCURR_IF_VERSION 9 /* increment whenever you change the interface structure! */
++#define nsdCURR_IF_VERSION 10 /* increment whenever you change the interface structure! */
+ /* interface version 4 added GetRemAddr()
+  * interface version 5 added EnableKeepAlive() -- rgerhards, 2009-06-02
+  * interface version 6 changed return of CheckConnection from void to rsRetVal -- alorbach, 2012-09-06
+  * interface version 7 changed signature ofGetRempoteIP() -- rgerhards, 2013-01-21
+  * interface version 8 added keep alive parameter set functions
+  * interface version 9 changed signature of Connect() -- dsa, 2016-11-14
++ * interface version 10 added SetGnutlsPriorityString() -- PascalWithopf, 2017-08-08
+  */
+ 
+ /* interface  for the select call */
+diff -up rsyslog-8.24.0/runtime/nsd_ptcp.c.v36tls rsyslog-8.24.0/runtime/nsd_ptcp.c
+--- rsyslog-8.24.0/runtime/nsd_ptcp.c.v36tls	2017-01-10 09:00:04.000000000 +0000
++++ rsyslog-8.24.0/runtime/nsd_ptcp.c	2019-08-19 17:37:07.879166693 +0100
+@@ -176,6 +176,23 @@ finalize_it:
+ }
+ 
+ 
++/* Set priorityString
++ * PascalWithopf 2017-08-18 */
++static rsRetVal
++SetGnutlsPriorityString(nsd_t __attribute__((unused)) *pNsd, uchar *iVal)
++{
++	DEFiRet;
++	if(iVal != NULL) {
++		LogError(0, RS_RET_VALUE_NOT_SUPPORTED, "error: "
++		"gnutlsPriorityString '%s' not supported by ptcp netstream "
++		"driver", iVal);
++		ABORT_FINALIZE(RS_RET_VALUE_NOT_SUPPORTED);
++	}
++finalize_it:
++	RETiRet;
++}
++
++
+ /* Set the permitted peers. This is a dummy, always returning an
+  * error because we do not support fingerprint authentication.
+  * rgerhards, 2008-05-17
+@@ -535,6 +552,7 @@ LstnInit(netstrms_t *pNS, void *pUsr, rs
+ 		CHKiRet(pNS->Drvr.SetMode(pNewNsd, netstrms.GetDrvrMode(pNS)));
+ 		CHKiRet(pNS->Drvr.SetAuthMode(pNewNsd, netstrms.GetDrvrAuthMode(pNS)));
+ 		CHKiRet(pNS->Drvr.SetPermPeers(pNewNsd, netstrms.GetDrvrPermPeers(pNS)));
++		CHKiRet(pNS->Drvr.SetGnutlsPriorityString(pNewNsd, netstrms.GetDrvrGnutlsPriorityString(pNS)));
+ 		CHKiRet(netstrms.CreateStrm(pNS, &pNewStrm));
+ 		pNewStrm->pDrvrData = (nsd_t*) pNewNsd;
+ 		pNewNsd = NULL;
+@@ -854,6 +872,7 @@ CODESTARTobjQueryInterface(nsd_ptcp)
+ 	pIf->SetSock = SetSock;
+ 	pIf->SetMode = SetMode;
+ 	pIf->SetAuthMode = SetAuthMode;
++	pIf->SetGnutlsPriorityString = SetGnutlsPriorityString;
+ 	pIf->SetPermPeers = SetPermPeers;
+ 	pIf->Rcv = Rcv;
+ 	pIf->Send = Send;
+diff -up rsyslog-8.24.0/runtime/tcpsrv.c.v36tls rsyslog-8.24.0/runtime/tcpsrv.c
+--- rsyslog-8.24.0/runtime/tcpsrv.c.v36tls	2019-08-19 17:37:07.874166693 +0100
++++ rsyslog-8.24.0/runtime/tcpsrv.c	2019-08-19 17:37:07.880166693 +0100
+@@ -470,6 +470,9 @@ SessAccept(tcpsrv_t *pThis, tcpLstnPortL
+ 	}
+ 
+ 	/* we found a free spot and can construct our session object */
++	if(pThis->gnutlsPriorityString != NULL) {
++		CHKiRet(netstrm.SetGnutlsPriorityString(pNewStrm, pThis->gnutlsPriorityString));
++	}
+ 	CHKiRet(tcps_sess.Construct(&pSess));
+ 	CHKiRet(tcps_sess.SetTcpsrv(pSess, pThis));
+ 	CHKiRet(tcps_sess.SetLstnInfo(pSess, pLstnInfo));
+@@ -1001,6 +1004,8 @@ tcpsrvConstructFinalize(tcpsrv_t *pThis)
+ 		CHKiRet(netstrms.SetDrvrAuthMode(pThis->pNS, pThis->pszDrvrAuthMode));
+ 	if(pThis->pPermPeers != NULL)
+ 		CHKiRet(netstrms.SetDrvrPermPeers(pThis->pNS, pThis->pPermPeers));
++	if(pThis->gnutlsPriorityString != NULL)
++		CHKiRet(netstrms.SetDrvrGnutlsPriorityString(pThis->pNS, pThis->gnutlsPriorityString));
+ 	CHKiRet(netstrms.ConstructFinalize(pThis->pNS));
+ 
+ 	/* set up listeners */
+@@ -1173,6 +1178,16 @@ SetKeepAliveTime(tcpsrv_t *pThis, int iV
+ }
+ 
+ static rsRetVal
++SetGnutlsPriorityString(tcpsrv_t *pThis, uchar *iVal)
++{
++	DEFiRet;
++	DBGPRINTF("tcpsrv: gnutlsPriorityString set to %s\n",
++		(iVal == NULL) ? "(null)" : (const char*) iVal);
++	pThis->gnutlsPriorityString = iVal;
++	RETiRet;
++}
++
++static rsRetVal
+ SetOnMsgReceive(tcpsrv_t *pThis, rsRetVal (*OnMsgReceive)(tcps_sess_t*, uchar*, int))
+ {
+ 	DEFiRet;
+@@ -1414,6 +1429,7 @@ CODESTARTobjQueryInterface(tcpsrv)
+ 	pIf->SetKeepAliveIntvl = SetKeepAliveIntvl;
+ 	pIf->SetKeepAliveProbes = SetKeepAliveProbes;
+ 	pIf->SetKeepAliveTime = SetKeepAliveTime;
++	pIf->SetGnutlsPriorityString = SetGnutlsPriorityString;
+ 	pIf->SetUsrP = SetUsrP;
+ 	pIf->SetInputName = SetInputName;
+ 	pIf->SetOrigin = SetOrigin;
+diff -up rsyslog-8.24.0/runtime/tcpsrv.h.v36tls rsyslog-8.24.0/runtime/tcpsrv.h
+--- rsyslog-8.24.0/runtime/tcpsrv.h.v36tls	2019-08-19 17:37:07.874166693 +0100
++++ rsyslog-8.24.0/runtime/tcpsrv.h	2019-08-19 17:37:07.880166693 +0100
+@@ -61,6 +61,7 @@ struct tcpsrv_s {
+ 	int iKeepAliveTime;	/**< socket layer KEEPALIVE timeout */
+ 	netstrms_t *pNS;	/**< pointer to network stream subsystem */
+ 	int iDrvrMode;		/**< mode of the stream driver to use */
++	uchar *gnutlsPriorityString;	/**< priority string for gnutls */
+ 	uchar *pszDrvrAuthMode;	/**< auth mode of the stream driver to use */
+ 	uchar *pszDrvrName;	/**< name of stream driver to use */
+ 	uchar *pszInputName;	/**< value to be used as input name */
+@@ -169,6 +170,8 @@ BEGINinterface(tcpsrv) /* name must also
+ 	rsRetVal (*SetKeepAliveTime)(tcpsrv_t*, int);
+ 	/* added v18 */
+ 	rsRetVal (*SetbSPFramingFix)(tcpsrv_t*, sbool);
++	/* added v19 -- PascalWithopf, 2017-08-08 */
++	rsRetVal (*SetGnutlsPriorityString)(tcpsrv_t*, uchar*);
+ 	/* added v21 -- Preserve case in fromhost, 2018-08-16 */
+ 	rsRetVal (*SetPreserveCase)(tcpsrv_t *pThis, int bPreserveCase);
+ ENDinterface(tcpsrv)
+diff -up rsyslog-8.24.0/tools/omfwd.c.v36tls rsyslog-8.24.0/tools/omfwd.c
+--- rsyslog-8.24.0/tools/omfwd.c.v36tls	2019-08-19 17:37:07.848166695 +0100
++++ rsyslog-8.24.0/tools/omfwd.c	2019-08-19 17:37:07.881166693 +0100
+@@ -91,6 +91,7 @@ typedef struct _instanceData {
+ 	int iKeepAliveIntvl;
+ 	int iKeepAliveProbes;
+ 	int iKeepAliveTime;
++	uchar *gnutlsPriorityString;
+ 
+ #	define	FORW_UDP 0
+ #	define	FORW_TCP 1
+@@ -138,6 +139,7 @@ typedef struct configSettings_s {
+ 	int iKeepAliveIntvl;
+ 	int iKeepAliveProbes;
+ 	int iKeepAliveTime;
++	uchar *gnutlsPriorityString;
+ 	permittedPeers_t *pPermPeers;
+ } configSettings_t;
+ static configSettings_t cs;
+@@ -169,6 +171,7 @@ static struct cnfparamdescr actpdescr[]
+ 	{ "keepalive.probes", eCmdHdlrPositiveInt, 0 },
+ 	{ "keepalive.time", eCmdHdlrPositiveInt, 0 },
+ 	{ "keepalive.interval", eCmdHdlrPositiveInt, 0 },
++	{ "gnutlsprioritystring", eCmdHdlrString, 0 },
+ 	{ "streamdriver", eCmdHdlrGetWord, 0 },
+ 	{ "streamdrivermode", eCmdHdlrInt, 0 },
+ 	{ "streamdriverauthmode", eCmdHdlrGetWord, 0 },
+@@ -717,6 +720,9 @@ static rsRetVal TCPSendInit(void *pvData
+ 			CHKiRet(netstrm.SetDrvrPermPeers(pWrkrData->pNetstrm, pData->pPermPeers));
+ 		}
+ 		/* params set, now connect */
++		if(pData->gnutlsPriorityString != NULL) {
++			CHKiRet(netstrm.SetGnutlsPriorityString(pWrkrData->pNetstrm, pData->gnutlsPriorityString));
++		}
+ 		CHKiRet(netstrm.Connect(pWrkrData->pNetstrm, glbl.GetDefPFFamily(),
+ 			(uchar*)pData->port, (uchar*)pData->target, pData->device));
+ 
+@@ -960,6 +966,7 @@ setInstParamDefaults(instanceData *pData
+ 	pData->iKeepAliveProbes = 0;
+ 	pData->iKeepAliveIntvl = 0;
+ 	pData->iKeepAliveTime = 0;
++	pData->gnutlsPriorityString = NULL;
+ 	pData->bResendLastOnRecon = 0; 
+ 	pData->bSendToAll = -1;  /* unspecified */
+ 	pData->iUDPSendDelay = 0;
+@@ -1046,6 +1053,8 @@ CODESTARTnewActInst
+ 			pData->iKeepAliveIntvl = (int) pvals[i].val.d.n;
+ 		} else if(!strcmp(actpblk.descr[i].name, "keepalive.time")) {
+ 			pData->iKeepAliveTime = (int) pvals[i].val.d.n;
++		} else if(!strcmp(actpblk.descr[i].name, "gnutlsprioritystring")) {
++			pData->gnutlsPriorityString = (uchar*)es_str2cstr(pvals[i].val.d.estr, NULL);
+ 		} else if(!strcmp(actpblk.descr[i].name, "streamdriver")) {
+ 			pData->pszStrmDrvr = (uchar*)es_str2cstr(pvals[i].val.d.estr, NULL);
+ 		} else if(!strcmp(actpblk.descr[i].name, "streamdrivermode")) {

@@ -1,0 +1,64 @@
+From 27eda7938d678bc69b46cfcb8351e871161ba526 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@momo7.localdomain>
+Date: Fri, 13 Jul 2018 10:44:13 -0700
+Subject: [PATCH] Introducing an option preservecase to imudp and imtcp module
+ for managing the case of FROMHOST value.
+
+Usage:
+  module(load="imudp" [preservecase="on"|"off"])
+  module(load="imtdp" [preservecase="on"|"off"])
+
+If preservecase="on", FROMHOST value is handled in the case sensitive manner.
+If preservecase="off", FROMHOST value is handled in the case insensitive manner.
+
+To maintain the current behaviour, the default value of preservecase is
+"on" for imtcp and "off" for imudp.
+
+References:
+  https://github.com/rsyslog/rsyslog/pull/2774
+  https://bugzilla.redhat.com/show_bug.cgi?id=1309698
+---
+ source/configuration/modules/imtcp.rst | 9 +++++++++
+ source/configuration/modules/imudp.rst | 9 +++++++++
+ 2 files changed, 18 insertions(+)
+
+diff --git a/source/configuration/modules/imtcp.rst b/source/configuration/modules/imtcp.rst
+index 2ddb7e9a..b9fe0adb 100644
+--- a/source/configuration/modules/imtcp.rst
++++ b/source/configuration/modules/imtcp.rst
+@@ -138,6 +138,15 @@
+    Array of peers:
+    PermittedPeer=["test1.example.net","10.1.2.3","test2.example.net","..."]
+ 
++.. function::  PreserveCase <on/off>
++
++   *Default: off*
++
++   This parameter is for controlling the case in fromhost.  If set to "on", 
++   the case in fromhost is preserved.  E.g., 'Host1.Example.Org' when the 
++   message was received from 'Host1.Example.Org'.  Defaults to "off" for 
++   backwards compatibility.
++
+ Input Parameters
+ ^^^^^^^^^^^^^^^^
+ 
+diff --git a/source/configuration/modules/imudp.rst b/source/configuration/modules/imudp.rst
+index 487853f6..b92f0810 100644
+--- a/source/configuration/modules/imudp.rst
++++ b/source/configuration/modules/imudp.rst
+@@ -97,6 +97,15 @@
+    set to 32. It may increase in the future when massive multicore
+    processors become available.
+ 
++.. function::  PreserveCase <on/off>
++
++   *Default: off*
++
++   This parameter is for controlling the case in fromhost.  If set to "on", 
++   the case in fromhost is preserved.  E.g., 'Host1.Example.Org' when the 
++   message was received from 'Host1.Example.Org'.  Defaults to "off" for 
++   backwards compatibility.
++
+ .. index:: imudp; input parameters
+ 
+ Input Parameters

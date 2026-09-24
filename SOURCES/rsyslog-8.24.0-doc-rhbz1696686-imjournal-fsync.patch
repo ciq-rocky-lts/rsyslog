@@ -1,0 +1,41 @@
+From 3ba46e563a3a5384fd6d783a8315273c237cb6af Mon Sep 17 00:00:00 2001
+From: Jiri Vymazal <jvymazal@redhat.com>
+Date: Tue, 23 Jul 2019 12:47:09 +0200
+Subject: [PATCH] Documetation for new 'fsync' imjournal option
+
+related to #3762 main repo PR
+---
+ source/configuration/modules/imjournal.rst | 13 +++++++++++--
+ 1 file changed, 11 insertions(+), 2 deletitions (-)
+
+diff --git a/source/configuration/modules/imjournal.rst b/source/configuration/modules/imjournal.rst
+index d8523ae8..47428fc6 100644
+--- a/source/configuration/modules/imjournal.rst
++++ b/source/configuration/modules/imjournal.rst
+@@ -3,8 +3,7 @@
+ 
+ **Module Name:** imjournal
+ 
+-**Author:** Milan Bartos <mbartos@redhat.com> (This module is **not**
+-project-supported)
++**Author:** Milan Bartos <mbartos@redhat.com>
+ 
+ **Available since**: 7.3.11
+ 
+@@ -107,6 +106,16 @@
+     with each message to work around this problem. Be aware that in some cases this
+     might result in imjournal performance hit.
+ 
++-  **FSync** [**off**/on]
++
++    When there is a hard crash, power loss or similar abrupt end of rsyslog process,
++    there is a risk of state file not being written to persistent storage or possibly
++    being corrupted. This then results in imjournal starting reading elsewhere then 
++    desired and most probably message duplication. To mitigate this problem you can 
++    turn this option on which will force state file writes to persistent physical 
++    storage. Please note that fsync calls are costly, so especially with lower 
++    PersistStateInterval value, this may present considerable performance hit.
++
+ **Caveats/Known Bugs:**
+ 
+ - As stated above, a corrupted systemd journal database can cause major

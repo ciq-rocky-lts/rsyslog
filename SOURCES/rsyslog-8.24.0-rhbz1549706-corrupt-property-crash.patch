@@ -1,0 +1,29 @@
+From 3a93e5e377cad7acd241f0f93de625657fada25c Mon Sep 17 00:00:00 2001
+From: Derek Smith <derek@slack-corp.com>
+Date: Wed, 21 Jun 2017 13:32:02 +0100
+Subject: [PATCH] type should be set back to VARTYPE_NONE incase we assigned a
+ property type of VARTYPE_STRING while failing to grab the length value
+
+---
+ runtime/obj.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/runtime/obj.c b/runtime/obj.c
+index 2186727ae6..771e5c16a7 100644
+--- a/runtime/obj.c
++++ b/runtime/obj.c
+@@ -664,6 +664,14 @@ rsRetVal objDeserializeProperty(var_t *pProp, strm_t *pStrm)
+ 	if(c != '\n') ABORT_FINALIZE(RS_RET_INVALID_PROPFRAME);
+ 
+ finalize_it:
++	/* ensure the type of var is reset back to VARTYPE_NONE since
++	* the deconstruct method of var might free unallocated memory
++	*/
++	if(iRet != RS_RET_OK && iRet != RS_RET_NO_PROPLINE) {
++		if(step <= 2) {
++			pProp->varType = VARTYPE_NONE;
++		}
++	}
+ 	if(Debug && iRet != RS_RET_OK && iRet != RS_RET_NO_PROPLINE) {
+ 		strm.GetCurrOffset(pStrm, &offs);
+ 		dbgprintf("error %d deserializing property name, offset %lld, step %d\n",
