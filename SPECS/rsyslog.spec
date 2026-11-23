@@ -5,7 +5,7 @@
 Summary: Enhanced system logging and kernel message trapping daemon
 Name: rsyslog
 Version: 8.2412.0
-Release: 1.2%{?dist}
+Release: 1.3%{?dist}
 License: (GPLv3+ and ASL 2.0)
 URL: http://www.rsyslog.com/
 Source0: http://www.rsyslog.com/files/download/rsyslog/%{name}-%{version}.tar.gz
@@ -22,6 +22,46 @@ Patch0: imfile-deleteStateOnFileMove.patch
 Patch1001: CVE-2026-78002.patch
 # CVE-2026-19654 — upstream backport
 Patch1002: rsyslog-8.2412.0-CVE-2026-19654.patch
+# https://github.com/rsyslog/rsyslog/commit/59c3657b02ae81426220ec6dd504dff2b395ce6e
+# upstream patch email-mangled + targets space-formatted main; minimal backport
+Patch1003: rsyslog-8.2412.0-CVE-2026-129837.patch
+# https://github.com/rsyslog/rsyslog/commit/b0dc6c16f2d6dffc8947c1481cb70c8f63bd6d87
+# upstream patch targets runtime/template.c (moved to template.c here); minimal backport
+Patch1004: rsyslog-8.2412.0-CVE-2026-129839.patch
+# https://github.com/rsyslog/rsyslog/commit/efe6fc139b9421e739d6c210e1c6ba8da84b4034
+# upstream patch targets space-formatted main; minimal backport
+Patch1005: rsyslog-8.2412.0-CVE-2026-129832.patch
+# https://github.com/rsyslog/rsyslog/commit/205fe52533cdf1fba2f9e4a4de7756b138d7ba6b
+# upstream patch targets refactored main (no appendTrustedProp here); minimal backport
+Patch1006: rsyslog-8.2412.0-CVE-2026-129838.patch
+# https://github.com/rsyslog/rsyslog/commit/4d9c2e6130505c2f938188d3f8124f3d5eb65513
+# upstream patch targets space-formatted main; minimal backport
+Patch1007: rsyslog-8.2412.0-CVE-2026-129833.patch
+# https://github.com/rsyslog/rsyslog/pull/8022 (imdtls, per-CVE split of the
+# upstream fix series; apply in order 1008 -> 1009 -> 1010). Upstream commits
+# target newer imdtls.c; minimal backport. Plugin is not built/shipped by
+# this spec; patched for tree completeness.
+#
+# listener stall in blocking SSL_accept: nonblocking client
+# socket after BIO_connect, poll-driven handshake retry, deferred DTLSv1_listen.
+# Also carries the PR's shared permitted-peer verification groundwork
+# (DTLSVerifySession) needed by the CVE-2026-129834 fix.
+# https://github.com/rsyslog/rsyslog/commit/093dc83dea130955ed861304059524fba3c84fae
+Patch1008: rsyslog-8.2412.0-CVE-2026-129836-imdtls.patch
+# permitted-peer bypass when the handshake completes during
+# SSL_read: recheck permitted peers after DTLS renegotiation.
+# https://github.com/rsyslog/rsyslog/commit/4e599526c172695f2fd2f1650ac908fc85ebe43b
+Patch1009: rsyslog-8.2412.0-CVE-2026-129834-imdtls.patch
+# idle client stall in blocking SSL_read: poll readiness
+# tracking for reads, DTLS retransmission timers and idle timeouts in the poll
+# loop, buffered-record drain, and POLLERR/POLLHUP/POLLNVAL session reaping
+# (upstream follow-up to the PR's security review).
+# https://github.com/rsyslog/rsyslog/commit/32c8f195e20459fd2b0f42845e89fc9bd280009f
+# https://github.com/rsyslog/rsyslog/commit/477cbe42e2c4106d14570d576dbcd285106dcc02
+# https://github.com/rsyslog/rsyslog/commit/c95a0503716c90b24c5fcce32c808c05c732a72e
+# https://github.com/rsyslog/rsyslog/commit/ae36932a6ac6b80c4a3e0f01745a812af411786a
+# https://github.com/rsyslog/rsyslog/commit/bee5bc96773d79fcda4bd13e23226f8c19cbe648
+Patch1010: rsyslog-8.2412.0-CVE-2026-129835-imdtls.patch
 
 BuildRequires: make
 BuildRequires: gcc
@@ -258,6 +298,14 @@ mv build doc
 %patch -P 0 -p1
 %patch -P 1001 -p1
 %patch1002 -p1
+%patch -P 1003 -p1
+%patch -P 1004 -p1
+%patch -P 1005 -p1
+%patch -P 1006 -p1
+%patch -P 1007 -p1
+%patch -P 1008 -p1
+%patch -P 1009 -p1
+%patch -P 1010 -p1
 
 # Unpack qpid-proton for rhel
 %setup -q -D -T -b 6
@@ -524,6 +572,16 @@ done
 
 
 %changelog
+* Wed Nov 18 2026 Pratham Patel <ppatel@ciq.com> - 8.2412.0-1.3
+- Fix CVE-2026-129837
+- Fix CVE-2026-129839
+- Fix CVE-2026-129832
+- Fix CVE-2026-129838
+- Fix CVE-2026-129833
+- Fix CVE-2026-129834
+- Fix CVE-2026-129835
+- Fix CVE-2026-129836
+
 * Fri Sep 11 2026 Jason Rodriguez <jrodriguez@ciq.com> - 8.2412.0-1.2
 - Fix CVE-2026-19654
 
