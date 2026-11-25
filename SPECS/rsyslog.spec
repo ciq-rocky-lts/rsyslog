@@ -6,7 +6,7 @@
 Summary: Enhanced system logging and kernel message trapping daemon
 Name: rsyslog
 Version: 8.2102.0
-Release: 7.1%{?dist}.1
+Release: 7.2%{?dist}.1
 License: (GPLv3+ and ASL 2.0)
 Group: System Environment/Daemons
 ExcludeArch: i686
@@ -58,6 +58,8 @@ Patch6: rsyslog-8.2102.0-rhbz1832368-prioritize-SAN.patch
 Patch7: rsyslog-8.37.0-rhbz2081396-CVE-2022-24903.patch
 
 Patch1001: CVE-2026-78002.patch
+# CVE-2026-19654 - adapted from Rocky Linux: https://git.rockylinux.org/staging/src-rhel/rpms/rsyslog/-/raw/c8/SOURCES/RHEL-212704-imptcp-guard-iCurrLine-before-regex-match.patch (context lines adapted to the target tree)
+Patch1002: rsyslog-8.2102.0-CVE-2026-19654.patch
 
 %package crypto
 Summary: Encryption support
@@ -292,6 +294,7 @@ mv build doc
 %patch7 -p1 -b .CVE-24903
 
 %patch1001 -p1 -b .CVE-2026-78002
+%patch1002 -p1 -b .CVE-2026-19654
 
 %build
 %ifarch sparc64
@@ -536,6 +539,9 @@ done
 %{_libdir}/rsyslog/omudpspoof.so
 
 %changelog
+* Wed Nov 25 2026 pmp <packager@ciq.com> - 8.2102.0-7.2.1
+- Fix CVE-2026-19654
+
 * Wed Sep 02 2026 Pratham Patel <ppatel@ciq.com> - 8.2102.0-7.1.1
 - Fix CVE-2026-78002
 
